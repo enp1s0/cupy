@@ -240,6 +240,8 @@ cdef class _ndarray_base:
         self._set_contiguous_strides(itemsize, c_order)
         self.data = memory.alloc(self.size * itemsize)
         self._index_32_bits = (self.size * itemsize) <= (1 << 31)
+        # Init fp16_available
+        self.fp16tcec_available = 0
 
     @property
     def __cuda_array_interface__(self):

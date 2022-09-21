@@ -23,6 +23,9 @@ cdef class _ndarray_base:
         # underlying memory is UnownedMemory.
         readonly _ndarray_base base
 
+        # For cuMpSGEMM automatic kernel selection
+        public int fp16tcec_available
+
     cdef _init_fast(self, const shape_t& shape, dtype, bint c_order)
     cpdef item(self)
     cpdef tolist(self)
