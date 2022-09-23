@@ -37,14 +37,7 @@ def set_chc_mode(a, b):
         chc.set_compute_mode(chc.CUMPSGEMM_TF32TCEC)
 
 def set_c_param(c):
-    fp16tcec_ratio_threshold = 0.1
-    total_count = 0
-    lost_count = 0
-    for es in chc.get_last_exp_stats():
-        total_count += es['total']
-        lost_count += es['lost']
-
-    if (total_count > 0) and (lost_count / total_count < fp16tcec_ratio_threshold):
+    if chc.get_lost_ratio() < chc.get_global_lost_ratio_threshold():
         c.fp16tcec_available = 1
     else:
         c.fp16tcec_available = 0
