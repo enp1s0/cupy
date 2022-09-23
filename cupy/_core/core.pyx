@@ -207,6 +207,9 @@ cdef class _ndarray_base:
         # dtype
         self.dtype, itemsize = _dtype.get_dtype_with_itemsize(dtype)
 
+        # For fp16_available
+        self.fp16tcec_available = 0
+
         # Store shape and strides
         if strides is not None:
             if memptr is None:
@@ -632,6 +635,7 @@ cdef class _ndarray_base:
         newarray._strides = x._strides
         newarray._c_contiguous = x._c_contiguous
         newarray._f_contiguous = x._f_contiguous
+        newarray.fp16tcec_available = x.fp16tcec_available
 
         copy_context = _null_context
         if runtime._is_hip_environment:
@@ -1991,6 +1995,7 @@ cdef class _ndarray_base:
         v._index_32_bits = self._index_32_bits
         v._set_shape_and_strides(
             shape, strides, update_c_contiguity, update_f_contiguity)
+        v.fp16tcec_available = self.fp16tcec_available
         if subtype is not ndarray:
             v.__array_finalize__(self)
         return v

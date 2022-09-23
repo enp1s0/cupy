@@ -29,6 +29,26 @@ from cupy.cuda cimport device
 from cupy_backends.cuda.api cimport runtime
 from cupy_backends.cuda.libs cimport cublas
 
+import cumpsgemm_hijack_control as chc
+def set_chc_mode(a, b):
+    if a.fp16tcec_available == 1 and b.fp16tcec_available == 1:
+        chc.set_compute_mode(chc.CUMPSGEMM_FP16TCEC)
+    else:
+        chc.set_compute_mode(chc.CUMPSGEMM_TF32TCEC)
+
+def set_c_param(c):
+    fp16tcec_ratio_threshold = 0.1
+    total_count = 0
+    lost_count = 0
+    for es in chc.get_last_exp_stats():
+        total_count += es['total']
+        lost_count += es['lost']
+
+    if (total_count > 0) and (lost_count / total_count < fp16tcec_ratio_threshold):
+        c.fp16tcec_available = 1
+    else:
+        c.fp16tcec_available = 0
+
 
 cdef extern from '../../cupy_backends/cupy_complex.h':
     ctypedef struct cuComplex 'cuComplex':
@@ -551,12 +571,16 @@ cpdef _ndarray_base tensordot_core(
     cdef _ndarray_base copy_to_out = None
     cdef str dtype = a.dtype.char
     cdef int compute_capability = int(device.get_compute_capability())
+
+    set_chc_mode(a, b)
+
     if dtype != b.dtype.char:
         dtype = numpy.promote_types(dtype, b.dtype).char
     if not a.size or not b.size:
         if out is None:
             out = _ndarray_init(cupy.ndarray, ret_shape, dtype, None)
         out.fill(0)
+        set_c_param(out)
         return out
 
     if out is not None:
@@ -574,6 +598,7 @@ cpdef _ndarray_base tensordot_core(
                 break
         else:
             _tensordot_core_mul_sum(a.ravel(), b.ravel(), out=c)
+        set_c_param(out)
         return out
 
     a = a.astype(dtype, order='K', casting=None, subok=None, copy=False)
@@ -634,6 +659,8 @@ cpdef _ndarray_base tensordot_core(
         tensordot_core_v11(transb, transa, m, n, k, b, ldb, a, lda, c, m)
         if copy_to_out is not None:
             elementwise_copy(copy_to_out, out)
+
+        set_c_param(out)
         return out
 
     handle = device.get_cublas_handle()
@@ -697,6 +724,8 @@ cpdef _ndarray_base tensordot_core(
         raise ValueError('Invalid dtype: %s' % str(dtype))
     if copy_to_out is not None:
         elementwise_copy(copy_to_out, out)
+
+    set_c_param(out)
     return out
 
 
@@ -841,6 +870,8 @@ cpdef _ndarray_base matmul(
     cdef _ndarray_base ap, bp, cp, c_view
     cdef bint use_broadcast
 
+    set_chc_mode(a, b)
+
     orig_a_ndim = a._shape.size()
     orig_b_ndim = b._shape.size()
     if orig_a_ndim == 0 or orig_b_ndim == 0:
@@ -849,13 +880,16 @@ cpdef _ndarray_base matmul(
     ndim = max(orig_a_ndim, orig_b_ndim)
     if ndim <= 2:
         if out is None:
-            return dot(a, b, out)
+            c = dot(a, b, out)
+            return c
         ret_dtype = numpy.promote_types(a.dtype, b.dtype)
         if out._c_contiguous and ret_dtype == out.dtype:
-            return dot(a, b, out)
+            c = dot(a, b, out)
+            return c
         c = _ndarray_init(cupy.ndarray, out._shape, dtype=ret_dtype, obj=None)
         dot(a, b, c)
         elementwise_copy(c, out)
+        set_c_param(out)
         return out
 
     orig_a = a
@@ -1094,4 +1128,7 @@ cpdef _ndarray_base matmul(
 
     if out is not c:
         elementwise_copy(c, out)
+
+    set_c_param(out)
+
     return out
