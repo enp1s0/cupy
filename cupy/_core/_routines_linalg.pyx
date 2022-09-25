@@ -37,7 +37,7 @@ def set_chc_mode(a, b):
         chc.set_compute_mode(chc.CUMPSGEMM_TF32TCEC)
 
 def set_c_param(c):
-    if chc.get_lost_ratio() < chc.get_global_lost_ratio_threshold():
+    if chc.get_lost_ratio() < chc.get_global_lost_ratio_threshold() and chc.is_exp_stats_enabled():
         c.fp16tcec_available = 1
     else:
         c.fp16tcec_available = 0
