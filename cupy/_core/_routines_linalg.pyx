@@ -31,13 +31,14 @@ from cupy_backends.cuda.libs cimport cublas
 
 import cumpsgemm_hijack_control as chc
 def set_chc_mode(a, b):
-    if a.fp16tcec_available == 1 and b.fp16tcec_available == 1:
-        chc.set_compute_mode(chc.CUMPSGEMM_FP16TCEC)
-    else:
-        chc.set_compute_mode(chc.CUMPSGEMM_TF32TCEC)
+    if chc.is_exp_stats_enabled():
+        if a.fp16tcec_available == 1 and b.fp16tcec_available == 1:
+            chc.set_compute_mode(chc.CUMPSGEMM_FP16TCEC)
+        else:
+            chc.set_compute_mode(chc.CUMPSGEMM_TF32TCEC)
 
 def set_c_param(c):
-    if chc.get_lost_ratio() < chc.get_global_lost_ratio_threshold() and chc.is_exp_stats_enabled():
+    if chc.is_exp_stats_enabled() and chc.get_lost_ratio() < chc.get_global_lost_ratio_threshold():
         c.fp16tcec_available = 1
     else:
         c.fp16tcec_available = 0
