@@ -37,11 +37,16 @@ def set_chc_mode(a, b):
         else:
             chc.set_compute_mode(chc.CUMPSGEMM_TF32TCEC)
 
+def set_chc_by_gemm_shape(m, n, k):
+    if m <= 128 or n <= 128:
+        chc.set_compute_mode(chc.CUMPSGEMM_CUBLAS)
+
 def set_c_param(c):
-    if chc.is_exp_stats_enabled() and chc.get_lost_ratio() < chc.get_global_lost_ratio_threshold():
-        c.fp16tcec_available = 1
-    else:
-        c.fp16tcec_available = 0
+    if chc.is_exp_stats_enabled():
+        if chc.get_lost_ratio() < chc.get_global_lost_ratio_threshold():
+            c.fp16tcec_available = 1
+        else:
+            c.fp16tcec_available = 0
 
 
 cdef extern from '../../cupy_backends/cupy_complex.h':
@@ -641,6 +646,8 @@ cpdef _ndarray_base tensordot_core(
             elementwise_copy(copy_to_out, out)
         return out
 
+    set_chc_by_gemm_shape(<int>m, <int>n, <int>k)
+
     global _cuda_runtime_version
     if _cuda_runtime_version < 0:
         _cuda_runtime_version = runtime.runtimeGetVersion()
@@ -1027,6 +1034,8 @@ cpdef _ndarray_base matmul(
         _cuda_runtime_version = runtime.runtimeGetVersion()
 
     cdef intptr_t handle = device.get_cublas_handle()
+
+    set_chc_by_gemm_shape(m, n, 0)
 
     one = numpy.array(1, dtype=dtype)
     zero = numpy.array(0, dtype=dtype)
