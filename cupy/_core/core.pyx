@@ -208,7 +208,7 @@ cdef class _ndarray_base:
         self.dtype, itemsize = _dtype.get_dtype_with_itemsize(dtype)
 
         # For fp16_available
-        self.fp16tcec_available = 0
+        self.exp_stats_result_buffer_id = 0
 
         # Store shape and strides
         if strides is not None:
@@ -244,7 +244,7 @@ cdef class _ndarray_base:
         self.data = memory.alloc(self.size * itemsize)
         self._index_32_bits = (self.size * itemsize) <= (1 << 31)
         # Init fp16_available
-        self.fp16tcec_available = 0
+        self.exp_stats_result_buffer_id = 0
 
     @property
     def __cuda_array_interface__(self):
@@ -635,7 +635,7 @@ cdef class _ndarray_base:
         newarray._strides = x._strides
         newarray._c_contiguous = x._c_contiguous
         newarray._f_contiguous = x._f_contiguous
-        newarray.fp16tcec_available = x.fp16tcec_available
+        newarray.exp_stats_result_buffer_id = x.exp_stats_result_buffer_id
 
         copy_context = _null_context
         if runtime._is_hip_environment:
@@ -1995,7 +1995,7 @@ cdef class _ndarray_base:
         v._index_32_bits = self._index_32_bits
         v._set_shape_and_strides(
             shape, strides, update_c_contiguity, update_f_contiguity)
-        v.fp16tcec_available = self.fp16tcec_available
+        v.exp_stats_result_buffer_id = self.exp_stats_result_buffer_id
         if subtype is not ndarray:
             v.__array_finalize__(self)
         return v

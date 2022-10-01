@@ -30,23 +30,32 @@ from cupy_backends.cuda.api cimport runtime
 from cupy_backends.cuda.libs cimport cublas
 
 import cumpsgemm_hijack_control as chc
-def set_chc_mode(a, b):
-    if chc.is_exp_stats_enabled():
-        if a.fp16tcec_available == 1 and b.fp16tcec_available == 1:
-            chc.set_compute_mode(chc.CUMPSGEMM_FP16TCEC)
+def set_chc_mode(a, b, m, n, k):
+    dim_threshold = 256
+    if chc.is_auto_kernel_selection_enabled():
+        if m >= dim_threshold and n >= dim_threshold and k >= dim_threshold:
+            a_lost_ratio = chc.get_lost_ratio(a.exp_stats_result_buffer_id)
+            b_lost_ratio = chc.get_lost_ratio(b.exp_stats_result_buffer_id)
+            if a_lost_ratio < chc.get_global_lost_ratio_threshold() and b_lost_ratio < chc.get_global_lost_ratio_threshold():
+                chc.set_compute_mode(chc.CUMPSGEMM_FP16TCEC)
+            else:
+                chc.set_compute_mode(chc.CUMPSGEMM_TF32TCEC)
         else:
-            chc.set_compute_mode(chc.CUMPSGEMM_TF32TCEC)
+            chc.set_compute_mode(chc.CUMPSGEMM_CUBLAS)
 
-def set_chc_by_gemm_shape(m, n, k):
-    if m <= 128 or n <= 128:
-        chc.set_compute_mode(chc.CUMPSGEMM_CUBLAS)
-
-def set_c_param(c):
-    if chc.is_exp_stats_enabled():
-        if chc.get_lost_ratio() < chc.get_global_lost_ratio_threshold():
-            c.fp16tcec_available = 1
+        if m * n >= dim_threshold * dim_threshold:
+            chc.enable_exp_stats()
         else:
-            c.fp16tcec_available = 0
+            chc.disable_exp_stats()
+    else:
+        if m >= dim_threshold and n >= dim_threshold and k >= dim_threshold:
+            chc.unset_compute_mode()
+        else:
+            chc.set_compute_mode(chc.CUMPSGEMM_CUBLAS)
+
+def set_chc_c(c):
+    if chc.is_exp_stats_enabled():
+        c.exp_stats_result_buffer_id = chc.get_current_buffer_id()
 
 
 cdef extern from '../../cupy_backends/cupy_complex.h':
@@ -571,7 +580,6 @@ cpdef _ndarray_base tensordot_core(
     cdef str dtype = a.dtype.char
     cdef int compute_capability = int(device.get_compute_capability())
 
-    set_chc_mode(a, b)
 
     if dtype != b.dtype.char:
         dtype = numpy.promote_types(dtype, b.dtype).char
@@ -579,7 +587,6 @@ cpdef _ndarray_base tensordot_core(
         if out is None:
             out = _ndarray_init(cupy.ndarray, ret_shape, dtype, None)
         out.fill(0)
-        set_c_param(out)
         return out
 
     if out is not None:
@@ -597,7 +604,8 @@ cpdef _ndarray_base tensordot_core(
                 break
         else:
             _tensordot_core_mul_sum(a.ravel(), b.ravel(), out=c)
-        set_c_param(out)
+
+        set_chc_c(out)
         return out
 
     a = a.astype(dtype, order='K', casting=None, subok=None, copy=False)
@@ -646,7 +654,7 @@ cpdef _ndarray_base tensordot_core(
             elementwise_copy(copy_to_out, out)
         return out
 
-    set_chc_by_gemm_shape(<int>m, <int>n, <int>k)
+    set_chc_mode(a, b, <int>m, <int>n, <int>k)
 
     global _cuda_runtime_version
     if _cuda_runtime_version < 0:
@@ -661,7 +669,7 @@ cpdef _ndarray_base tensordot_core(
         if copy_to_out is not None:
             elementwise_copy(copy_to_out, out)
 
-        set_c_param(out)
+        set_chc_c(out)
         return out
 
     handle = device.get_cublas_handle()
@@ -726,7 +734,7 @@ cpdef _ndarray_base tensordot_core(
     if copy_to_out is not None:
         elementwise_copy(copy_to_out, out)
 
-    set_c_param(out)
+    set_chc_c(out)
     return out
 
 
@@ -871,7 +879,6 @@ cpdef _ndarray_base matmul(
     cdef _ndarray_base ap, bp, cp, c_view
     cdef bint use_broadcast
 
-    set_chc_mode(a, b)
 
     orig_a_ndim = a._shape.size()
     orig_b_ndim = b._shape.size()
@@ -890,7 +897,7 @@ cpdef _ndarray_base matmul(
         c = _ndarray_init(cupy.ndarray, out._shape, dtype=ret_dtype, obj=None)
         dot(a, b, c)
         elementwise_copy(c, out)
-        set_c_param(out)
+        set_chc_c(out)
         return out
 
     orig_a = a
@@ -1035,7 +1042,7 @@ cpdef _ndarray_base matmul(
 
     cdef intptr_t handle = device.get_cublas_handle()
 
-    set_chc_by_gemm_shape(m, n, 0)
+    set_chc_mode(orig_a, orig_b, m, n, ka)
 
     one = numpy.array(1, dtype=dtype)
     zero = numpy.array(0, dtype=dtype)
@@ -1132,6 +1139,5 @@ cpdef _ndarray_base matmul(
     if out is not c:
         elementwise_copy(c, out)
 
-    set_c_param(out)
-
+    set_chc_c(out)
     return out

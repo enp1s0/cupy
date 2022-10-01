@@ -24,7 +24,7 @@ cdef class _ndarray_base:
         readonly _ndarray_base base
 
         # For cuMpSGEMM automatic kernel selection
-        public int fp16tcec_available
+        public int exp_stats_result_buffer_id
 
     cdef _init_fast(self, const shape_t& shape, dtype, bint c_order)
     cpdef item(self)
