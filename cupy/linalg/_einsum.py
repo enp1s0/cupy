@@ -11,6 +11,14 @@ from cupy.linalg._einsum_opt import _greedy_path
 from cupy.linalg._einsum_opt import _optimal_path
 from cupy.linalg._einsum_cutn import _try_use_cutensornet
 
+import cumpsgemm_hijack_control as chc
+def chc_set_c(res):
+    arr_len = res.size
+    if chc.is_auto_kernel_selection_enabled() and arr_len >= chc.get_global_cublas_dim_mn_threshold() ** chc.get_global_cublas_dim_k_threshold() and (res.dtype == cupy.float32 or res.dtype == cupy.complex64):
+        if res.dtype == cupy.complex64:
+            arr_len *= 2
+        chc.exp_stats(arr_len, 1, res.data.ptr, 1)
+        res.exp_stats_result_buffer_id = chc.get_current_buffer_id()
 
 try:
     import cupy_backends.cuda.libs.cutensor  # NOQA
@@ -363,7 +371,9 @@ def reduced_binary_einsum(arr0, sub0, arr1, sub1, sub_others):
     assert len(set1) == len(sub1), 'operand 1 should be reduced: diagonal'
 
     if len(sub0) == 0 or len(sub1) == 0:
-        return arr0 * arr1, sub0 + sub1
+        res = arr0 * arr1
+        chc_set_c(res)
+        return res, sub0 + sub1
 
     set_others = set(sub_others)
     shared = set0 & set1
@@ -388,7 +398,9 @@ def reduced_binary_einsum(arr0, sub0, arr1, sub1, sub_others):
             sub_out = sub_others
         arr0 = _expand_dims_transpose(arr0, sub0, sub_out)
         arr1 = _expand_dims_transpose(arr1, sub1, sub_out)
-        return arr0 * arr1, sub_out
+        res = arr0 * arr1
+        chc_set_c(res)
+        return res, sub_out
 
     for accelerator in _accelerator.get_routine_accelerators():
         if (accelerator == _accelerator.ACCELERATOR_CUTENSOR and
@@ -418,6 +430,8 @@ def reduced_binary_einsum(arr0, sub0, arr1, sub1, sub_others):
     tmp1, shapes1 = _flatten_transpose(arr1, [bs1, cs1, ts1])
     shapes_out = shapes0[0] + shapes0[1] + shapes1[2]
     assert shapes0[0] == shapes1[0]
+    tmp0.exp_stats_result_buffer_id = arr0.exp_stats_result_buffer_id
+    tmp1.exp_stats_result_buffer_id = arr1.exp_stats_result_buffer_id
     arr_out = cupy.matmul(tmp0, tmp1).reshape(shapes_out)
     return arr_out, sub_out
 
