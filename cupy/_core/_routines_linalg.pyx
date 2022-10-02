@@ -31,11 +31,18 @@ from cupy_backends.cuda.libs cimport cublas
 
 import cumpsgemm_hijack_control as chc
 def set_chc_mode(a, b, m, n, k, batch_size = 1):
-    dim_threshold = chc.get_global_cublas_dim_threshold()
+    dim_mn_threshold = chc.get_global_cublas_dim_mn_threshold()
+    dim_k_threshold = chc.get_global_cublas_dim_k_threshold()
     if chc.is_auto_kernel_selection_enabled():
-        if m >= dim_threshold and n >= dim_threshold:
-            a_lost_ratio = chc.get_lost_ratio(a.exp_stats_result_buffer_id)
-            b_lost_ratio = chc.get_lost_ratio(b.exp_stats_result_buffer_id)
+        if m >= dim_mn_threshold and n >= dim_mn_threshold and k >= dim_k_threshold:
+            a_lost_ratio = 0
+            b_lost_ratio = 0
+            if a.exp_stats_result_buffer_id < b.exp_stats_result_buffer_id:
+                a_lost_ratio = chc.get_lost_ratio(a.exp_stats_result_buffer_id)
+                b_lost_ratio = chc.get_lost_ratio(b.exp_stats_result_buffer_id)
+            else:
+                b_lost_ratio = chc.get_lost_ratio(b.exp_stats_result_buffer_id)
+                a_lost_ratio = chc.get_lost_ratio(a.exp_stats_result_buffer_id)
             if a_lost_ratio < chc.get_global_lost_ratio_threshold() and b_lost_ratio < chc.get_global_lost_ratio_threshold():
                 chc.set_compute_mode(chc.CUMPSGEMM_FP16TCEC)
             else:
@@ -43,13 +50,13 @@ def set_chc_mode(a, b, m, n, k, batch_size = 1):
         else:
             chc.set_compute_mode(chc.CUMPSGEMM_CUBLAS)
 
-        #if m * n * batch_size >= dim_threshold * dim_threshold:
-        chc.enable_exp_stats()
-        #else:
-        #    chc.disable_exp_stats()
+        if m * n * batch_size >= dim_mn_threshold * dim_mn_threshold:
+            chc.enable_exp_stats()
+        else:
+            chc.disable_exp_stats()
     else:
         chc.disable_exp_stats()
-        if m >= dim_threshold and n >= dim_threshold and k >= dim_threshold:
+        if m >= dim_mn_threshold and n >= dim_mn_threshold and k >= dim_k_threshold:
             chc.unset_compute_mode()
         else:
             chc.set_compute_mode(chc.CUMPSGEMM_CUBLAS)
@@ -879,7 +886,6 @@ cpdef _ndarray_base matmul(
     cdef int orig_a_ndim, orig_b_ndim, a_ndim, b_ndim, ndim
     cdef _ndarray_base ap, bp, cp, c_view
     cdef bint use_broadcast
-
 
     orig_a_ndim = a._shape.size()
     orig_b_ndim = b._shape.size()
