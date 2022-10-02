@@ -30,10 +30,10 @@ from cupy_backends.cuda.api cimport runtime
 from cupy_backends.cuda.libs cimport cublas
 
 import cumpsgemm_hijack_control as chc
-def set_chc_mode(a, b, m, n, k):
-    dim_threshold = 256
+def set_chc_mode(a, b, m, n, k, batch_size = 1):
+    dim_threshold = chc.get_global_cublas_dim_threshold()
     if chc.is_auto_kernel_selection_enabled():
-        if m >= dim_threshold and n >= dim_threshold and k >= dim_threshold:
+        if m >= dim_threshold and n >= dim_threshold:
             a_lost_ratio = chc.get_lost_ratio(a.exp_stats_result_buffer_id)
             b_lost_ratio = chc.get_lost_ratio(b.exp_stats_result_buffer_id)
             if a_lost_ratio < chc.get_global_lost_ratio_threshold() and b_lost_ratio < chc.get_global_lost_ratio_threshold():
@@ -43,18 +43,19 @@ def set_chc_mode(a, b, m, n, k):
         else:
             chc.set_compute_mode(chc.CUMPSGEMM_CUBLAS)
 
-        if m * n >= dim_threshold * dim_threshold:
-            chc.enable_exp_stats()
-        else:
-            chc.disable_exp_stats()
+        #if m * n * batch_size >= dim_threshold * dim_threshold:
+        chc.enable_exp_stats()
+        #else:
+        #    chc.disable_exp_stats()
     else:
+        chc.disable_exp_stats()
         if m >= dim_threshold and n >= dim_threshold and k >= dim_threshold:
             chc.unset_compute_mode()
         else:
             chc.set_compute_mode(chc.CUMPSGEMM_CUBLAS)
 
 def set_chc_c(c):
-    if chc.is_exp_stats_enabled():
+    if chc.is_auto_kernel_selection_enabled() and chc.is_exp_stats_enabled():
         c.exp_stats_result_buffer_id = chc.get_current_buffer_id()
 
 
@@ -580,6 +581,7 @@ cpdef _ndarray_base tensordot_core(
     cdef str dtype = a.dtype.char
     cdef int compute_capability = int(device.get_compute_capability())
 
+    set_chc_mode(a, b, <int>m, <int>n, <int>k)
 
     if dtype != b.dtype.char:
         dtype = numpy.promote_types(dtype, b.dtype).char
@@ -654,7 +656,6 @@ cpdef _ndarray_base tensordot_core(
             elementwise_copy(copy_to_out, out)
         return out
 
-    set_chc_mode(a, b, <int>m, <int>n, <int>k)
 
     global _cuda_runtime_version
     if _cuda_runtime_version < 0:
@@ -1042,7 +1043,7 @@ cpdef _ndarray_base matmul(
 
     cdef intptr_t handle = device.get_cublas_handle()
 
-    set_chc_mode(orig_a, orig_b, m, n, ka)
+    set_chc_mode(orig_a, orig_b, m, n, ka, batchCount)
 
     one = numpy.array(1, dtype=dtype)
     zero = numpy.array(0, dtype=dtype)
