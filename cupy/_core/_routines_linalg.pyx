@@ -29,6 +29,22 @@ from cupy.cuda cimport device
 from cupy_backends.cuda.api cimport runtime
 from cupy_backends.cuda.libs cimport cublas
 
+import cumpsgemm_hijack_control as chc
+def set_chc_mode(a, b, m, n, k, batch_size = 1):
+    dim_mn_threshold = chc.get_global_cublas_dim_mn_threshold()
+    dim_k_threshold = chc.get_global_cublas_dim_k_threshold()
+    if chc.is_auto_kernel_selection_enabled():
+        if m >= dim_mn_threshold and n >= dim_mn_threshold and k >= dim_k_threshold:
+            chc.set_compute_mode(chc.CUMPSGEMM_AUTO)
+        else:
+            chc.set_compute_mode(chc.CUMPSGEMM_CUBLAS)
+    else:
+        if m >= dim_mn_threshold and n >= dim_mn_threshold and k >= dim_k_threshold:
+            chc.unset_compute_mode()
+        else:
+            chc.set_compute_mode(chc.CUMPSGEMM_CUBLAS)
+
+
 
 cdef extern from '../../cupy_backends/cupy_complex.h':
     ctypedef struct cuComplex 'cuComplex':
@@ -551,6 +567,9 @@ cpdef _ndarray_base tensordot_core(
     cdef _ndarray_base copy_to_out = None
     cdef str dtype = a.dtype.char
     cdef int compute_capability = int(device.get_compute_capability())
+
+    set_chc_mode(a, b, <int>m, <int>n, <int>k)
+
     if dtype != b.dtype.char:
         dtype = numpy.promote_types(dtype, b.dtype).char
     if not a.size or not b.size:
@@ -999,6 +1018,8 @@ cpdef _ndarray_base matmul(
         _cuda_runtime_version = runtime.runtimeGetVersion()
 
     cdef intptr_t handle = device.get_cublas_handle()
+
+    set_chc_mode(orig_a, orig_b, m, n, ka, batchCount)
 
     one = numpy.array(1, dtype=dtype)
     zero = numpy.array(0, dtype=dtype)
